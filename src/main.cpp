@@ -110,9 +110,21 @@ void get_history()
 	for(unsigned int i=0;i<count_emails;i++) {
 		_ids *mail_data=(struct _ids*)(mra_base+offset_table[end_id_mail]+4);
 		if(memmem(((unsigned char*)mail_data+0x190), mrahistory,sizeof(mrahistory),sizeof(mrahistory))) {
+
+			//--------------------------
+			TCHAR lol[512];
+			wsprintf(lol,_TEXT("0x%X\r\n"),(unsigned char *)mail_data - (unsigned char *)mra_base);
+			OutputDebugString(lol);
+			//------------------------
 			emails.emails[emails.count_messages].hTmpFile = INVALID_HANDLE_VALUE;
 			emails.emails[emails.count_messages].id=(_ids*)((unsigned char*)mail_data+0x24);
 			emails.emails[emails.count_messages].history=emails.emails[emails.count_messages].email=(wchar_t*)mail_data+0xC8+11; //поставим указатель сразу после "mrahistory_"
+
+			// бывают истории где написано 
+			// mrahistory_user1\x00\x00user2 - коцаные моей старой версией...
+			// бывают где написано
+			// mrahistory_user1_user2
+			// вывыют 75312345575_4563154664 - ICQ... 
 
 			//while(*emails.emails[emails.count_messages].email++!=0x75);
 			//emails.emails[emails.count_messages].email[0]=0x00;
