@@ -103,8 +103,9 @@ void get_history()
 	unsigned int count_emails=*(unsigned int*)(mra_base+32+offset_table[1]);
 
 
-	emails.emails=(struct _email *)VirtualAlloc(NULL,count_emails*sizeof(struct _emails),MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);
+	emails.emails=(struct _email *)VirtualAlloc(NULL,count_emails*sizeof(struct _email),MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);
 	emails.count_messages=0;
+	if(NULL == emails.emails) return;
 
 	for(unsigned int i=0;i<count_emails;i++) {
 		_ids *mail_data=(struct _ids*)(mra_base+offset_table[end_id_mail]+4);
@@ -113,9 +114,9 @@ void get_history()
 			emails.emails[emails.count_messages].id=(_ids*)((unsigned char*)mail_data+0x24);
 			emails.emails[emails.count_messages].history=emails.emails[emails.count_messages].email=(wchar_t*)mail_data+0xC8+11; //поставим указатель сразу после "mrahistory_"
 
-			while(*emails.emails[emails.count_messages].email++!=0x75);
-			emails.emails[emails.count_messages].email[0]=0x00;
-			++emails.emails[emails.count_messages].email;
+			//while(*emails.emails[emails.count_messages].email++!=0x75);
+			//emails.emails[emails.count_messages].email[0]=0x00;
+			//++emails.emails[emails.count_messages].email;
 
 			//emails->emails[emails->count_messages].size=emails->emails[emails->count_messages].email - emails->emails[emails->count_messages].history;
 
