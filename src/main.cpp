@@ -20,6 +20,8 @@ HINSTANCE hInst;
 HANDLE hDBSFile=INVALID_HANDLE_VALUE;
 HANDLE hDBSMap=NULL;
 
+int cur_sel_item_index;
+
 unsigned char * mra_base = NULL;
 unsigned int * offset_table;
 
@@ -175,7 +177,7 @@ BOOL SetListEmails()
 		}
 	}
 
-	
+
 	lvI.lParam=MF_GRAYED;
 	if(lvI.iItem > 0)
 	{
@@ -297,12 +299,109 @@ BOOL PrintMessage(HWND hwndDlg,struct _emails * emails,int email_index)
 LRESULT SetDefaultText(HWND hRich)
 {
 	//char text[]="{\\rtf1\\ansi\\ansicpg1251\\deff0\\deflang1033{\\fonttbl{\\f0\\fswiss\\fprq2\\fcharset0 Tahoma;}}\
-				\\viewkind4\\uc1\\pard\\par\\qc{\\b\\f0\\fs52 mail.ru}\\fs40  History Reader 3.1\\par\
-\\fs20 2009-2013 (c)oded by Gar|k}";
+	\\viewkind4\\uc1\\pard\\par\\qc{\\b\\f0\\fs52 mail.ru}\\fs40  History Reader 3.1\\par\
+	\\fs20 2009-2013 (c)oded by Gar|k}";
 
 	char text[]="{\\rtf1\\ansi\\pard\\par\\qc{\\b\\fs52 mail.ru}\\fs40  History Reader 3.1\\par\\fs20 2009-2013 (c)oded by Gar|k}";
-		return SendMessage(hRich,WM_SETTEXT,0,(LPARAM)text); 
+	return SendMessage(hRich,WM_SETTEXT,0,(LPARAM)text); 
 
+}
+
+DWORD CALLBACK SaveStreamCallback(DWORD_PTR dwCookie, LPBYTE lpBuff,
+	LONG cb, PLONG pcb)
+{
+	HANDLE hFile = (HANDLE)dwCookie;
+	if (WriteFile(hFile, lpBuff, cb, (DWORD *)pcb, NULL)) 
+	{
+		return 0;
+	}
+	return -1;
+}
+
+BOOL save_text(UINT type)
+{
+	OPENFILENAME ofn;       // common dialog box structure
+	wchar_t szFile[MAX_PATH];       // buffer for file name
+
+	DWORD wr;
+	HANDLE hFile;
+	int i,len;
+
+	memset(&ofn,0,sizeof(ofn));
+
+	HWND hLV=GetDlgItem(hwndDlg,IDC_LIST1);
+
+	ofn.lpstrFilter=_TEXT("Текстовый файл\0*.txt\0Все файлы\0*.*\0");
+	len=GetWindowText(GetDlgItem(hwndDlg,IDC_COMBO1),szFile,MAX_PATH);
+	if(type==IDM_SAVE_LIST) {
+
+		lstrcatW(szFile,L"_contacts.txt");
+		ofn.lpstrTitle=_TEXT("Сохранить список контактов");
+		//ofn.lpstrFilter=&ofn.lpstrFilter[15];
+
+	}
+	if(type==1) {
+		szFile[len++]=0x5F;
+		ListView_GetItemText(hLV,cur_sel_item_index,0,&szFile[len],MAX_PATH-len);
+		lstrcatW(szFile,L"_history.txt");
+		//szFile[0]=0;
+
+	}
+
+
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = hwndDlg;
+	ofn.lpstrFile = szFile;
+	ofn.nMaxFile = sizeof(szFile);
+
+	ofn.nFilterIndex = 1;
+	ofn.lpstrFileTitle = NULL;
+	ofn.nMaxFileTitle = 0;
+	ofn.lpstrInitialDir = NULL;
+	ofn.Flags = OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
+
+	// Display the Open dialog box. 
+
+	if (GetSaveFileName(&ofn)==TRUE) 
+	{
+
+		hFile=CreateFile(ofn.lpstrFile,GENERIC_WRITE,0,NULL,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
+		if(hFile==INVALID_HANDLE_VALUE) 
+		{
+			MessageBox(hwndDlg,_TEXT("Невозможно создать файл"),NULL,MB_OK|MB_ICONERROR);
+			return FALSE; 
+		}
+		if(type==IDM_SAVE_LIST)
+		{
+
+			int c=ListView_GetItemCount(hLV);
+			wchar_t val[128],buf[128];
+
+			for(i=0;i<c;i++)
+			{
+				
+				ListView_GetItemText(hLV,i,0,val,128);
+
+				len=wsprintfW(buf,L"%s\r\n",val)*2;
+				if(i == (c-1)) len-=4;
+				
+				WriteFile(hFile,buf,len,&wr,NULL);
+			}
+		}
+		if(type==1)
+		{
+			EDITSTREAM es = { 0 };
+			es.pfnCallback = SaveStreamCallback;
+			es.dwCookie = (DWORD_PTR)hFile;
+			SendMessage(GetDlgItem(hwndDlg,IDC_RICHEDIT21), EM_STREAMOUT, SF_TEXT, (LPARAM)&es) ;
+		}
+		CloseHandle(hFile);
+
+		//MessageBox(hwndDlg,_TEXT(""))
+
+		return TRUE;
+	}
+	return FALSE;
 }
 
 BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lParam) 
@@ -321,7 +420,9 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 
 		//for(int i=0;i<20;i++)
 		//	EnableMenuItem(hMenu, i, MF_BYPOSITION | MF_ENABLED);
-		
+
+
+
 
 		ListView_SetExtendedListViewStyleEx(GetDlgItem(hwndDlg,IDC_LIST1),LVS_EX_FULLROWSELECT,LVS_EX_FULLROWSELECT);
 
@@ -346,6 +447,15 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 		switch(LOWORD(wParam))
 		{
 			// Обработка меню -----------------------------------------------
+		case IDM_SAVE_LIST:
+			save_text(wParam);
+			break;
+		case IDM_OPEN_FORUM:
+			ShellExecute(0,_TEXT("open"),_TEXT("https://forum.antichat.ru/thread114077.html"),NULL,NULL,SW_SHOW); 
+			break;
+		case IDM_OPEN_BLOG:
+			ShellExecute(0,_TEXT("open"),_TEXT("http://c0dedgarik.blogspot.com/"),NULL,NULL,SW_SHOW); 
+			break;
 		case IDM_OPEN:
 			{
 				OPENFILENAME ofn;
@@ -391,6 +501,8 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 								SetComboEmail();
 								SetListEmails();
 
+								EnableMenuItem(GetSubMenu(hMenu,0), 1, MF_BYPOSITION | MF_ENABLED); // enable menu save
+								EnableMenuItem(hMenu,IDM_SAVE_LIST,MF_ENABLED);
 								EnableMenuItem(hMenu,IDM_OPEN,MF_GRAYED);
 								EnableMenuItem(hMenu,IDM_CLOSE,MF_ENABLED);
 							}
@@ -418,9 +530,11 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 						SendMessage(hCombo,CB_RESETCONTENT,0,0);
 						EnableWindow(hCombo,FALSE);
 
+						EnableMenuItem(GetSubMenu(hMenu,0), 1, MF_BYPOSITION | MF_GRAYED); 
 						EnableMenuItem(hMenu,IDM_SAVE_LIST,MF_GRAYED);
+
 						SendDlgItemMessage(hwndDlg,IDC_LIST1,LVM_DELETEALLITEMS,0,0);
-						
+
 					}
 					UnmapViewOfFile(mra_base);
 					mra_base=NULL;
@@ -431,7 +545,7 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 					SetWindowText(hwndDlg,WINTITLE);
 					EnableMenuItem(hMenu,IDM_OPEN,MF_ENABLED);
 					EnableMenuItem(hMenu,IDM_CLOSE,MF_GRAYED);
-					
+
 
 					SetDefaultText(GetDlgItem(hwndDlg,IDC_RICHEDIT21));
 				}
@@ -465,7 +579,20 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 				return PrintMessage(hwndDlg,&emails,lvI.lParam);
 			}
 			break;
+		case NM_CLICK:
+			{
+				if(((LPNMITEMACTIVATE)lParam)->iItem!=-1)
+				{
+					cur_sel_item_index=((LPNMITEMACTIVATE)lParam)->iItem;
+					//SetMenuState(2,MFS_ENABLED);
+
+
+					return TRUE;
+				}
+				break;
+			}
 		}
+
 	}   
 	return FALSE;
 }
