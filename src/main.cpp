@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <Commctrl.h>
+#pragma comment(lib,"Comctl32.lib")
 #pragma comment(linker,"\"/manifestdependency:type='win32' \
 name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
 processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
@@ -108,7 +109,7 @@ void get_history()
 	for(unsigned int i=0;i<count_emails;i++) {
 		_ids *mail_data=(struct _ids*)(mra_base+offset_table[end_id_mail]+4);
 		if(memmem(((unsigned char*)mail_data+0x190), mrahistory,sizeof(mrahistory),sizeof(mrahistory))) {
-			emails.emails[emails.count_messages].hTmpFile = NULL;
+			emails.emails[emails.count_messages].hTmpFile = INVALID_HANDLE_VALUE;
 			emails.emails[emails.count_messages].id=(_ids*)((unsigned char*)mail_data+0x24);
 			emails.emails[emails.count_messages].history=emails.emails[emails.count_messages].email=(wchar_t*)mail_data+0xC8+11; //поставим указатель сразу после "mrahistory_"
 
@@ -218,15 +219,12 @@ BOOL PrintMessage(HWND hwndDlg,struct _emails * emails,int email_index)
 	if(0 == emails->emails[email_index].id->id1)
 	{
 		MessageBox(hwndDlg,_TEXT("Нет сообщений"),NULL,MB_OK|MB_ICONINFORMATION);
-		//char text[]="{\\rtf1\\ansi\\pard\\fs100\\par\\par\\qc{\\b TOP SECRET}}";
-
-		//SendMessage(GetDlgItem(hwndDlg,IDC_RICHEDIT21),WM_SETTEXT,0,(LPARAM)text);
 		return fSuccess;
 	}
 
 	if(NULL == emails->emails[email_index].hTmpFile)
 	{
-		HANDLE hTmpFile=CreateFile(emails->emails[email_index].email,GENERIC_WRITE|GENERIC_READ,FILE_SHARE_WRITE|FILE_SHARE_READ,NULL,OPEN_ALWAYS,FILE_ATTRIBUTE_TEMPORARY,NULL);
+		HANDLE hTmpFile=CreateFile(emails->emails[email_index].email,GENERIC_WRITE|GENERIC_READ,FILE_SHARE_WRITE|FILE_SHARE_READ|FILE_SHARE_DELETE,NULL,OPEN_ALWAYS,FILE_ATTRIBUTE_TEMPORARY|FILE_FLAG_DELETE_ON_CLOSE,NULL);
 		if(INVALID_HANDLE_VALUE != hTmpFile )
 		{
 			int id_message=emails->emails[email_index].id->id1;
@@ -293,22 +291,22 @@ BOOL PrintMessage(HWND hwndDlg,struct _emails * emails,int email_index)
 		emails->emails[email_index].hTmpFile = NULL;
 	}
 
+	if(TRUE == fSuccess)
+	{
+		EnableMenuItem(hMenu,IDM_SAVE_HISTORY,MF_ENABLED);
+	}
+
 	return fSuccess;
 }
 
 LRESULT SetDefaultText(HWND hRich)
 {
-	//char text[]="{\\rtf1\\ansi\\ansicpg1251\\deff0\\deflang1033{\\fonttbl{\\f0\\fswiss\\fprq2\\fcharset0 Tahoma;}}\
-	\\viewkind4\\uc1\\pard\\par\\qc{\\b\\f0\\fs52 mail.ru}\\fs40  History Reader 3.1\\par\
-	\\fs20 2009-2013 (c)oded by Gar|k}";
-
 	char text[]="{\\rtf1\\ansi\\pard\\par\\qc{\\b\\fs52 mail.ru}\\fs40  History Reader 3.1\\par\\fs20 2009-2013 (c)oded by Gar|k}";
 	return SendMessage(hRich,WM_SETTEXT,0,(LPARAM)text); 
-
 }
 
 DWORD CALLBACK SaveStreamCallback(DWORD_PTR dwCookie, LPBYTE lpBuff,
-	LONG cb, PLONG pcb)
+								  LONG cb, PLONG pcb)
 {
 	HANDLE hFile = (HANDLE)dwCookie;
 	if (WriteFile(hFile, lpBuff, cb, (DWORD *)pcb, NULL)) 
@@ -340,7 +338,7 @@ BOOL save_text(UINT type)
 		//ofn.lpstrFilter=&ofn.lpstrFilter[15];
 
 	}
-	if(type==1) {
+	if(type==IDM_SAVE_HISTORY) {
 		szFile[len++]=0x5F;
 		ListView_GetItemText(hLV,cur_sel_item_index,0,&szFile[len],MAX_PATH-len);
 		lstrcatW(szFile,L"_history.txt");
@@ -373,32 +371,29 @@ BOOL save_text(UINT type)
 		}
 		if(type==IDM_SAVE_LIST)
 		{
-
 			int c=ListView_GetItemCount(hLV);
 			wchar_t val[128],buf[128];
 
 			for(i=0;i<c;i++)
 			{
-				
 				ListView_GetItemText(hLV,i,0,val,128);
 
 				len=wsprintfW(buf,L"%s\r\n",val)*2;
 				if(i == (c-1)) len-=4;
-				
+
 				WriteFile(hFile,buf,len,&wr,NULL);
 			}
 		}
-		if(type==1)
+
+		if(type==IDM_SAVE_HISTORY)
 		{
 			EDITSTREAM es = { 0 };
 			es.pfnCallback = SaveStreamCallback;
 			es.dwCookie = (DWORD_PTR)hFile;
 			SendMessage(GetDlgItem(hwndDlg,IDC_RICHEDIT21), EM_STREAMOUT, SF_TEXT, (LPARAM)&es) ;
 		}
+
 		CloseHandle(hFile);
-
-		//MessageBox(hwndDlg,_TEXT(""))
-
 		return TRUE;
 	}
 	return FALSE;
@@ -406,10 +401,6 @@ BOOL save_text(UINT type)
 
 BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lParam) 
 {
-
-
-
-
 	switch (Message)   
 	{   
 	case WM_INITDIALOG:
@@ -417,12 +408,6 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 		SendMessage(hwndDlg,WM_SETICON,ICON_SMALL,(LPARAM)LoadIcon(hInst,MAKEINTRESOURCE(IDI_ICON1)));
 		hMenu=LoadMenu(hInst,MAKEINTRESOURCE(IDR_MENU1));
 		SetMenu(hwndDlg,hMenu);
-
-		//for(int i=0;i<20;i++)
-		//	EnableMenuItem(hMenu, i, MF_BYPOSITION | MF_ENABLED);
-
-
-
 
 		ListView_SetExtendedListViewStyleEx(GetDlgItem(hwndDlg,IDC_LIST1),LVS_EX_FULLROWSELECT,LVS_EX_FULLROWSELECT);
 
@@ -447,11 +432,12 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 		switch(LOWORD(wParam))
 		{
 			// Обработка меню -----------------------------------------------
+		case IDM_SAVE_HISTORY:
 		case IDM_SAVE_LIST:
 			save_text(wParam);
 			break;
 		case IDM_OPEN_FORUM:
-			ShellExecute(0,_TEXT("open"),_TEXT("https://forum.antichat.ru/thread114077.html"),NULL,NULL,SW_SHOW); 
+			ShellExecute(0,_TEXT("open"),_TEXT("https://github.com/Garik-/mail.ru_reader"),NULL,NULL,SW_SHOW); 
 			break;
 		case IDM_OPEN_BLOG:
 			ShellExecute(0,_TEXT("open"),_TEXT("http://c0dedgarik.blogspot.com/"),NULL,NULL,SW_SHOW); 
@@ -521,7 +507,9 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 						for(int index  = 0; index < emails.count_messages;index++)
 						{
 							if(INVALID_HANDLE_VALUE != emails.emails[index].hTmpFile)
+							{
 								CloseHandle(emails.emails[index].hTmpFile);
+							}
 						}
 						VirtualFree(emails.emails,0,MEM_RELEASE);
 						emails.count_messages=0;
@@ -584,15 +572,11 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 				if(((LPNMITEMACTIVATE)lParam)->iItem!=-1)
 				{
 					cur_sel_item_index=((LPNMITEMACTIVATE)lParam)->iItem;
-					//SetMenuState(2,MFS_ENABLED);
-
-
 					return TRUE;
 				}
 				break;
 			}
 		}
-
 	}   
 	return FALSE;
 }
