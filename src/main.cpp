@@ -1,79 +1,4 @@
-#include <windows.h>
-#include <Commctrl.h>
-#pragma comment(lib,"Comctl32.lib")
-#pragma comment(linker,"\"/manifestdependency:type='win32' \
-name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
-processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
-#include <tchar.h>
-#include <richedit.h>
-
-#include "resource.h"
-
-#define WINTITLE _TEXT("Mail.ru History Reader")
-
-// Типы сообщений
-#define TYPE_SMS 0x11
-#define TYPE_BIRTHDAY 0x0D // напоминалка о дне рождении
-
-HMENU hMenu;
-HWND hwndDlg;
-HINSTANCE hInst;
-HANDLE hDBSFile=INVALID_HANDLE_VALUE;
-HANDLE hDBSMap=NULL;
-
-int cur_sel_item_index;
-
-unsigned char * mra_base = NULL;
-unsigned int * offset_table;
-
-
-#pragma pack(push,1) 
-typedef struct _ids{
-	unsigned int id1;
-	unsigned int id2;
-}_ids;
-
-struct _message{
-	unsigned int size;
-	unsigned int prev_id;
-	unsigned int next_id;
-	unsigned int xz1;
-	FILETIME time;
-	unsigned int type_message;
-	char flag_incoming;
-	char lol[3]; 
-	unsigned int count_nick;
-	unsigned int magic_num; // 0x38
-	unsigned int count_message; // именно количество, не размер в байтах
-	unsigned int xz2; // 
-	unsigned int size_lps_rtf; // байт 
-	unsigned int xz3; // 
-};
-
-
-
-typedef struct _email{
-	wchar_t *history;
-	wchar_t *email;
-	//unsigned int size;
-	HANDLE hTmpFile;
-	_ids *id;
-}_email;
-
-typedef struct _emails{
-	struct _email *emails;
-	unsigned int count_messages;
-}_emails;
-
-struct _emails emails = {NULL,0};
-
-/* Сигнатура строки "mrahistory_" в unicode */
-unsigned char mrahistory[22] = {
-	0x6D, 0x00, 0x72, 0x00, 0x61, 0x00, 0x68, 0x00, 0x69, 0x00, 0x73, 0x00, 0x74, 0x00, 0x6F, 0x00, 
-	0x72, 0x00, 0x79, 0x00, 0x5F, 0x00
-};
-
-#pragma pack(pop)
+#include "main.h"
 
 // Быстрая функция поиска по памяти, из исходников GNU libc 
 void * memmem(const void *buf, const void *pattern, size_t buflen, size_t len)
@@ -102,7 +27,6 @@ void get_history()
 	unsigned int end_id_mail=*(unsigned int*)(mra_base+44+offset_table[1]);
 	unsigned int count_emails=*(unsigned int*)(mra_base+32+offset_table[1]);
 
-
 	emails.emails=(struct _email *)VirtualAlloc(NULL,count_emails*sizeof(struct _email),MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);
 	emails.count_messages=0;
 	if(NULL == emails.emails) return;
@@ -111,49 +35,30 @@ void get_history()
 		_ids *mail_data=(struct _ids*)(mra_base+offset_table[end_id_mail]+4);
 		if(memmem(((unsigned char*)mail_data+0x190), mrahistory,sizeof(mrahistory),sizeof(mrahistory))) {
 
-			//--------------------------
-			TCHAR lol[512];
-			wsprintf(lol,_TEXT("0x%X\r\n"),(unsigned char *)mail_data - (unsigned char *)mra_base);
-			OutputDebugString(lol);
-			//------------------------
-			emails.emails[emails.count_messages].hTmpFile = INVALID_HANDLE_VALUE;
+			emails.emails[emails.count_messages].hTmpFile = NULL;
 			emails.emails[emails.count_messages].id=(_ids*)((unsigned char*)mail_data+0x24);
-			emails.emails[emails.count_messages].history=emails.emails[emails.count_messages].email=(wchar_t*)mail_data+0xC8+11; //поставим указатель сразу после "mrahistory_"
+			emails.emails[emails.count_messages].history=(wchar_t*)mail_data+0xC8+11; //поставим указатель сразу после "mrahistory_"
 
-			// бывают истории где написано 
-			// mrahistory_user1\x00\x00user2 - коцаные моей старой версией...
-			// бывают где написано
-			// mrahistory_user1_user2
-			// вывыют 75312345575_4563154664 - ICQ... 
-
-			//while(*emails.emails[emails.count_messages].email++!=0x75);
-			//emails.emails[emails.count_messages].email[0]=0x00;
-			//++emails.emails[emails.count_messages].email;
-
-			//emails->emails[emails->count_messages].size=emails->emails[emails->count_messages].email - emails->emails[emails->count_messages].history;
-
-			//while(*emails[k].email++!=0); //таким макаром указатель email сдвигается на + 2 байта (тип wchar_t) и его значение сравнивается с нулем
 			emails.count_messages++;
 		}
 		end_id_mail=mail_data->id2;
 	}
 }
 
-BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lParam);
+
 
 // Главная функция  
-int WINAPI WinMain (HINSTANCE hInstance,HINSTANCE hPrevInstance,LPSTR lpCmdLine,int nShowCmd)   
+void entry()   
 {  
-	UNREFERENCED_PARAMETER(hPrevInstance);  
-	UNREFERENCED_PARAMETER(lpCmdLine);
 
 	HMODULE hRe=LoadLibrary(_TEXT("Riched20.dll"));
 	InitCommonControls();
-	hInst=hInstance;
-	DialogBox(hInstance,MAKEINTRESOURCE(IDD_DIALOG1),NULL,MainDialogProc);
+	hInst=GetModuleHandle(NULL);
+	*(void* *)&__memset=(void *)GetProcAddress(LoadLibrary(_TEXT("ntdll.dll")),"memset");
+	DialogBox(hInst,MAKEINTRESOURCE(IDD_DIALOG1),NULL,MainDialogProc);
 	FreeLibrary(hRe);
 
-	return 0;
+	ExitProcess(0);
 }
 
 DWORD CALLBACK EditStreamCallback(DWORD_PTR dwCookie, LPBYTE lpBuff,LONG cb, PLONG pcb)
@@ -171,11 +76,9 @@ DWORD CALLBACK EditStreamCallback(DWORD_PTR dwCookie, LPBYTE lpBuff,LONG cb, PLO
 BOOL SetListEmails()
 {
 	LVITEM lvI;
-	wchar_t search[512];
-	HWND hList=GetDlgItem(hwndDlg,IDC_LIST1);
-	unsigned int search_len=GetWindowTextW(GetDlgItem(hwndDlg,IDC_COMBO1),search,sizeof(search))*2;
 
-	memset(&lvI,0,sizeof(LVITEM));
+	HWND hList=GetDlgItem(hwndDlg,IDC_LIST1);
+	__memset(&lvI,0,sizeof(LVITEM));
 
 	lvI.mask = LVIF_TEXT | LVIF_PARAM;  
 
@@ -183,14 +86,10 @@ BOOL SetListEmails()
 
 	for(int index  = 0; index < emails.count_messages;index++)
 	{
-		if(memmem(emails.emails[index].history,search,sizeof(search),search_len))
-		{
-			lvI.lParam=index;
-			lvI.pszText=emails.emails[index].email;
-			lvI.iItem=SendMessageW(hList,LVM_INSERTITEMW,0,(LPARAM)&lvI);
-		}
+		lvI.lParam=index;
+		lvI.pszText=emails.emails[index].history;
+		lvI.iItem=SendMessageW(hList,LVM_INSERTITEMW,0,(LPARAM)&lvI);
 	}
-
 
 	lvI.lParam=MF_GRAYED;
 	if(lvI.iItem > 0)
@@ -199,34 +98,12 @@ BOOL SetListEmails()
 	}
 	EnableMenuItem(hMenu,IDM_SAVE_LIST,lvI.lParam);
 
-
 	return TRUE;
 
-}
-
-BOOL SetComboEmail()
-{
-	HWND hCombo=GetDlgItem(hwndDlg,IDC_COMBO1);
-	SendMessage(hCombo,CB_RESETCONTENT, 0, 0);
-	EnableWindow(hCombo,FALSE);
-
-	if(emails.count_messages == 0) return FALSE;
-
-	for(int index  = 0; index < emails.count_messages;index++)
-	{
-		if(SendMessageW(hCombo,CB_FINDSTRING,-1,(LPARAM)emails.emails[index].history)==CB_ERR)
-			SendMessageW(hCombo,CB_ADDSTRING,0,(LPARAM)emails.emails[index].history);
-	}
-
-	EnableWindow(hCombo,TRUE);
-	SendMessage(hCombo,CB_SETCURSEL,0,0);
-
-	return TRUE;
 }
 
 BOOL PrintMessage(HWND hwndDlg,struct _emails * emails,int email_index)
 {
-
 	BOOL fSuccess = FALSE;
 
 	if(0 == emails->emails[email_index].id->id1)
@@ -237,7 +114,7 @@ BOOL PrintMessage(HWND hwndDlg,struct _emails * emails,int email_index)
 
 	if(NULL == emails->emails[email_index].hTmpFile)
 	{
-		HANDLE hTmpFile=CreateFile(emails->emails[email_index].email,GENERIC_WRITE|GENERIC_READ,FILE_SHARE_WRITE|FILE_SHARE_READ|FILE_SHARE_DELETE,NULL,OPEN_ALWAYS,FILE_ATTRIBUTE_TEMPORARY|FILE_FLAG_DELETE_ON_CLOSE,NULL);
+		HANDLE hTmpFile=CreateFile(emails->emails[email_index].history,GENERIC_WRITE|GENERIC_READ,FILE_SHARE_WRITE|FILE_SHARE_READ|FILE_SHARE_DELETE,NULL,OPEN_ALWAYS,FILE_ATTRIBUTE_TEMPORARY|FILE_FLAG_DELETE_ON_CLOSE,NULL);
 		if(INVALID_HANDLE_VALUE != hTmpFile )
 		{
 			int id_message=emails->emails[email_index].id->id1;
@@ -251,9 +128,7 @@ BOOL PrintMessage(HWND hwndDlg,struct _emails * emails,int email_index)
 
 				FileTimeToSystemTime(&mes->time,&st);
 				len=wsprintfW(buf,L"%02d.%02d.%04d %02d:%02d (0x%X) > ",st.wDay,st.wMonth,st.wYear,st.wHour,st.wMinute, mes->type_message);
-				wprintf(_TEXT("%d\t%s\n"),id_message,buf);
-
-
+				
 				WriteFile(hTmpFile,buf,len*sizeof(wchar_t),(LPDWORD)&st,NULL); // так как нам больше не нужна структура st ее можно заюзать
 
 				wchar_t *str=(wchar_t *)((unsigned char *)mes+sizeof(_message));
@@ -319,7 +194,7 @@ LRESULT SetDefaultText(HWND hRich)
 }
 
 DWORD CALLBACK SaveStreamCallback(DWORD_PTR dwCookie, LPBYTE lpBuff,
-								  LONG cb, PLONG pcb)
+	LONG cb, PLONG pcb)
 {
 	HANDLE hFile = (HANDLE)dwCookie;
 	if (WriteFile(hFile, lpBuff, cb, (DWORD *)pcb, NULL)) 
@@ -338,27 +213,24 @@ BOOL save_text(UINT type)
 	HANDLE hFile;
 	int i,len;
 
-	memset(&ofn,0,sizeof(ofn));
+	__memset(&ofn,0,sizeof(ofn));
 
 	HWND hLV=GetDlgItem(hwndDlg,IDC_LIST1);
 
 	ofn.lpstrFilter=_TEXT("Текстовый файл\0*.txt\0Все файлы\0*.*\0");
 	len=GetWindowText(GetDlgItem(hwndDlg,IDC_COMBO1),szFile,MAX_PATH);
-	if(type==IDM_SAVE_LIST) {
 
+	switch(type)
+	{
+	case IDM_SAVE_LIST:
 		lstrcatW(szFile,L"_contacts.txt");
 		ofn.lpstrTitle=_TEXT("Сохранить список контактов");
-		//ofn.lpstrFilter=&ofn.lpstrFilter[15];
-
-	}
-	if(type==IDM_SAVE_HISTORY) {
-		szFile[len++]=0x5F;
+		break;
+	case IDM_SAVE_HISTORY:
 		ListView_GetItemText(hLV,cur_sel_item_index,0,&szFile[len],MAX_PATH-len);
 		lstrcatW(szFile,L"_history.txt");
-		//szFile[0]=0;
-
+		break;
 	}
-
 
 	ofn.lStructSize = sizeof(ofn);
 	ofn.hwndOwner = hwndDlg;
@@ -382,29 +254,35 @@ BOOL save_text(UINT type)
 			MessageBox(hwndDlg,_TEXT("Невозможно создать файл"),NULL,MB_OK|MB_ICONERROR);
 			return FALSE; 
 		}
-		if(type==IDM_SAVE_LIST)
+
+		switch(type)
 		{
-			int c=ListView_GetItemCount(hLV);
-			wchar_t val[128],buf[128];
-
-			for(i=0;i<c;i++)
+		case IDM_SAVE_LIST:
 			{
-				ListView_GetItemText(hLV,i,0,val,128);
+				int c=ListView_GetItemCount(hLV);
+				wchar_t val[128],buf[128];
 
-				len=wsprintfW(buf,L"%s\r\n",val)*2;
-				if(i == (c-1)) len-=4;
+				for(i=0;i<c;i++)
+				{
+					ListView_GetItemText(hLV,i,0,val,128);
 
-				WriteFile(hFile,buf,len,&wr,NULL);
+					len=wsprintfW(buf,L"%s\r\n",val)*2;
+					if(i == (c-1)) len-=4;
+
+					WriteFile(hFile,buf,len,&wr,NULL);
+				}
+				break;
+			}
+		case IDM_SAVE_HISTORY:
+			{
+				EDITSTREAM es = { 0 };
+				es.pfnCallback = SaveStreamCallback;
+				es.dwCookie = (DWORD_PTR)hFile;
+				SendMessage(GetDlgItem(hwndDlg,IDC_RICHEDIT21), EM_STREAMOUT, SF_TEXT, (LPARAM)&es) ;
+				break;
 			}
 		}
 
-		if(type==IDM_SAVE_HISTORY)
-		{
-			EDITSTREAM es = { 0 };
-			es.pfnCallback = SaveStreamCallback;
-			es.dwCookie = (DWORD_PTR)hFile;
-			SendMessage(GetDlgItem(hwndDlg,IDC_RICHEDIT21), EM_STREAMOUT, SF_TEXT, (LPARAM)&es) ;
-		}
 
 		CloseHandle(hFile);
 		return TRUE;
@@ -427,8 +305,8 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 		LV_COLUMN lc;
 		lc.mask=LVCF_FMT|LVCF_TEXT|LVCF_WIDTH;
 		lc.fmt=LVCFMT_LEFT;
-		lc.pszText=_TEXT("Почта"); 
-		lc.cx=189;
+		lc.pszText=_TEXT("Список контактов"); 
+		lc.cx=279;
 
 		SendDlgItemMessage(hwndDlg,IDC_LIST1,LVM_INSERTCOLUMN,0,(LPARAM)&lc);
 		SendDlgItemMessage(hwndDlg,IDC_RICHEDIT21,EM_SETEVENTMASK,0,ENM_MOUSEEVENTS|ENM_KEYEVENTS);
@@ -436,11 +314,6 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 		break;   
 
 	case WM_COMMAND:
-
-		if(LOWORD(wParam)==IDC_COMBO1 && HIWORD(wParam)==CBN_SELCHANGE) {
-			SetListEmails();
-			break;
-		}
 
 		switch(LOWORD(wParam))
 		{
@@ -459,7 +332,7 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 			{
 				OPENFILENAME ofn;
 				TCHAR szFile[MAX_PATH];
-				memset(&ofn,0,sizeof(ofn));
+				__memset(&ofn,0,sizeof(ofn));
 				ofn.lStructSize=sizeof(ofn);
 				ofn.hwndOwner=hwndDlg;
 				ofn.hInstance=hInst;
@@ -497,7 +370,7 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 								offset_table=(unsigned int *)(mra_base + *(unsigned int*)(mra_base + 16));
 								get_history();
 
-								SetComboEmail();
+								//SetComboEmail();
 								SetListEmails();
 
 								EnableMenuItem(GetSubMenu(hMenu,0), 1, MF_BYPOSITION | MF_ENABLED); // enable menu save
@@ -567,29 +440,33 @@ BOOL CALLBACK MainDialogProc(HWND s_hwndDlg,UINT Message, UINT wParam, LONG lPar
 		return TRUE;
 
 	case WM_NOTIFY:
-		switch (((LPNMHDR)lParam)->code) 
+		if(((LPNMHDR)lParam)->idFrom  == IDC_LIST1)
 		{
-		case NM_DBLCLK:
-			if(((LPNMITEMACTIVATE)lParam)->iItem!=-1)
+			switch (((LPNMHDR)lParam)->code) 
 			{
-				LVITEM lvI = {0};
-				lvI.mask=LVIF_PARAM;
-				lvI.iItem=((LPNMITEMACTIVATE)lParam)->iItem;
-
-				SendDlgItemMessage(hwndDlg,IDC_LIST1,LVM_GETITEM,0,(LPARAM)&lvI);
-				return PrintMessage(hwndDlg,&emails,lvI.lParam);
-			}
-			break;
-		case NM_CLICK:
-			{
+			case NM_DBLCLK:
 				if(((LPNMITEMACTIVATE)lParam)->iItem!=-1)
 				{
-					cur_sel_item_index=((LPNMITEMACTIVATE)lParam)->iItem;
-					return TRUE;
+					LVITEM lvI;
+					__memset(&lvI,0,sizeof(LVITEM));
+					lvI.mask=LVIF_PARAM;
+					lvI.iItem=((LPNMITEMACTIVATE)lParam)->iItem;
+
+					SendDlgItemMessage(hwndDlg,IDC_LIST1,LVM_GETITEM,0,(LPARAM)&lvI);
+					PrintMessage(hwndDlg,&emails,lvI.lParam);
 				}
 				break;
-			}
-		}
+			case NM_CLICK:
+				{
+					if(((LPNMITEMACTIVATE)lParam)->iItem!=-1)
+					{
+						cur_sel_item_index=((LPNMITEMACTIVATE)lParam)->iItem;
+						return TRUE;
+					}
+					break;
+				}
+			} // switch
+		} // if
 	}   
 	return FALSE;
 }
